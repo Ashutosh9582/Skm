@@ -9,7 +9,6 @@
 <meta name="apple-mobile-web-app-title" content="SKM Catering">
 <link rel="apple-touch-icon" href="icon-192.png">
 <link rel="icon" href="icon-192.png">
-<script src="https://accounts.google.com/gsi/client" async defer></script>
 <title>Catering – Bookings & Billing</title>
 <style>
 :root{box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px);--bg:#faf6ef;--card:#fff;--tx:#2b2118;--mu:#7a6a5a;--ac:#8c1c13;--ln:#e6dccb;--ok:#1f7a3d}
@@ -41,94 +40,93 @@ h1,.doc h2{font-family:'Playfair Display',Georgia,serif}.g2{display:grid;grid-te
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.50.0/dist/umd/supabase.js"></script>
 <script>
 (function(){
-/* ===== Google Drive sync (replaces claude.use('db')) ===== */
-const DRV={cid:localStorage.getItem('skmCid')||'',on:localStorage.getItem('skmDrv')=='1',tok:null,exp:0,fid:localStorage.getItem('skmFid')||'',need:false,msg:''};
-try{const t=JSON.parse(localStorage.getItem('skmTok')||'null');if(t&&t.exp>Date.now()+60000){DRV.tok=t.t;DRV.exp=t.exp}}catch(e){}
-const DFN='SKM_Catering_Data.json',DAPI='https://www.googleapis.com/drive/v3/files',DUP='https://www.googleapis.com/upload/drive/v3/files';
-const SH={sto:{c:{},cfg:{}},subs:[],pend:[],seq:0,mod:'',loaded:false,busy:false,again:false,poll:null};
-try{SH.pend=JSON.parse(localStorage.getItem('skmPend')||'[]');SH.seq=SH.pend.reduce((a,o)=>Math.max(a,o.q||0),0)}catch(e){}
-const pPersist=()=>{try{localStorage.setItem('skmPend',JSON.stringify(SH.pend))}catch(e){}};
-function dStat(m,col){DRV.msg=m;const f=document.getElementById('drvfab');if(f){f.style.background=col||'#777';f.title=m}try{if(typeof ST!='undefined'&&typeof head=='function'&&m){ST=m;head()}}catch(e){}}
-function gisReady(){return new Promise(r=>{let n=0;const t=setInterval(()=>{if(window.google&&google.accounts&&google.accounts.oauth2){clearInterval(t);r(true)}else if(++n>40){clearInterval(t);r(false)}},250)})}
-async function getTokUI(){
- if(DRV.tok&&Date.now()<DRV.exp-60000)return DRV.tok;
- if(!DRV.cid||!await gisReady())return null;
- return new Promise(res=>{
-  let done=false;const fin=v=>{if(!done){done=true;res(v)}};
-  try{const c=google.accounts.oauth2.initTokenClient({client_id:DRV.cid,scope:'https://www.googleapis.com/auth/drive.file',
-   callback:r=>{if(r&&r.access_token){DRV.tok=r.access_token;DRV.exp=Date.now()+(r.expires_in||3600)*1000;try{localStorage.setItem('skmTok',JSON.stringify({t:DRV.tok,exp:DRV.exp}))}catch(e){}DRV.need=false;fin(DRV.tok)}else fin(null)},
-   error_callback:()=>fin(null)});
-   c.requestAccessToken({prompt:''})}catch(e){fin(null)}
-  setTimeout(()=>fin(null),90000)})}
-function tokQuiet(){if(DRV.tok&&Date.now()<DRV.exp-60000)return DRV.tok;DRV.need=true;return null}
-async function dv(url,opt){opt=opt||{};const t=tokQuiet();if(!t)throw new Error('auth');
- const r=await fetch(url,{...opt,headers:{...(opt.headers||{}),Authorization:'Bearer '+t}});
- if(r.status==401){DRV.tok=null;DRV.need=true;throw new Error('auth')}
- if(!r.ok){const e=new Error('http'+r.status);e.status=r.status;throw e}return r}
-async function ensureFile(){
- if(DRV.fid)return DRV.fid;
- const q=encodeURIComponent("name='"+DFN+"' and trashed=false");
- const j=await(await dv(DAPI+'?q='+q+'&fields=files(id,modifiedTime)&orderBy=modifiedTime desc')).json();
- if(j.files&&j.files.length)DRV.fid=j.files[0].id;
- else{const b='skm'+Date.now(),body='--'+b+'\r\nContent-Type: application/json\r\n\r\n'+JSON.stringify({name:DFN,mimeType:'application/json'})+'\r\n--'+b+'\r\nContent-Type: application/json\r\n\r\n'+JSON.stringify({c:{},cfg:{}})+'\r\n--'+b+'--';
-  const r=await(await dv(DUP+'?uploadType=multipart&fields=id',{method:'POST',headers:{'Content-Type':'multipart/related; boundary='+b},body})).json();DRV.fid=r.id}
- try{localStorage.setItem('skmFid',DRV.fid)}catch(e){}return DRV.fid}
-const norm=o=>({c:(o&&o.c)||{},cfg:(o&&o.cfg)||{}});
-function applyOps(st,ops){ops.forEach(o=>{if(o.k=='c'){const c=st.c[o.c]=st.c[o.c]||{};if(o.v===null)delete c[o.id];else c[o.id]=o.v}else st.cfg[o.n]=o.v})}
-function eff(){const e={c:{},cfg:{...SH.sto.cfg}};for(const k in SH.sto.c)e.c[k]={...SH.sto.c[k]};applyOps(e,SH.pend);return e}
+/* ===== Supabase sync (replaces claude.use('db')) ===== */
+const g=k=>{try{return localStorage.getItem(k)}catch(e){return null}},st_=(k,v)=>{try{localStorage.setItem(k,v)}catch(e){}};
+const SB={url:g('skmSbU')||'',key:g('skmSbK')||'',cli:null,loaded:false,subs:[],c:{},cfg:{},pend:[],busy:false,msg:'',ch:null,seq:0,started:false,email:''};
+try{SB.pend=JSON.parse(g('skmPendSb')||'[]');SB.seq=SB.pend.reduce((a,o)=>Math.max(a,o.q||0),0)}catch(e){}
+const pp=()=>st_('skmPendSb',JSON.stringify(SB.pend));
 const cl=v=>v==null?v:JSON.parse(JSON.stringify(v));
-function fire(){const e=eff();SH.subs.forEach(s=>{try{if(s.t=='c')s.cb({docs:Object.entries(e.c[s.n]||{}).map(([id,v])=>({id,data:()=>cl(v)}))});else{const v=e.cfg[s.n];s.cb({exists:v!=null,data:()=>cl(v)})}}catch(x){}})}
-function qop(o){const i=SH.pend.findIndex(p=>p.k==o.k&&p.c==o.c&&p.id==o.id&&p.n==o.n);o.q=++SH.seq;if(i>=0)SH.pend[i]=o;else SH.pend.push(o);pPersist();clearTimeout(SH.dt);SH.dt=setTimeout(dCycle,1200)}
-async function dCycle(){
- if(SH.busy){SH.again=true;return}SH.busy=true;
- try{
-  const fid=await ensureFile();
-  let meta=await(await dv(DAPI+'/'+fid+'?fields=modifiedTime')).json(),changed=!SH.loaded;
-  if(SH.pend.length||meta.modifiedTime!==SH.mod){
-   let remote=norm(await(await dv(DAPI+'/'+fid+'?alt=media')).json());
-   if(SH.pend.length){
-    const sent=new Set(SH.pend.map(o=>o.q));applyOps(remote,SH.pend);
-    meta=await(await dv(DUP+'/'+fid+'?uploadType=media&fields=modifiedTime',{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify(remote)})).json();
-    SH.pend=SH.pend.filter(o=>!sent.has(o.q));pPersist()}
-   if(JSON.stringify(SH.sto)!==JSON.stringify(remote)){SH.sto=remote;changed=true}
-   SH.mod=meta.modifiedTime}
-  SH.loaded=true;if(changed)fire();
-  dStat('Drive ✓','#1f7a3d')
- }catch(e){
-  if(e&&e.status==404){DRV.fid='';try{localStorage.removeItem('skmFid')}catch(x){}}
-  if(DRV.need)dStat('Drive: reconnect (kahin tap karein)','#d68a00');else dStat('Drive offline','#c0392b');
-  if(!SH.loaded)throw e
- }finally{SH.busy=false;if(SH.again){SH.again=false;setTimeout(dCycle,400)}}}
+const canon=v=>JSON.stringify(v,(k,x)=>x&&typeof x=='object'&&!Array.isArray(x)?Object.keys(x).sort().reduce((a,b)=>(a[b]=x[b],a),{}):x);
+function stat(m,col){SB.msg=m;const f=document.getElementById('sbfab');if(f){f.style.background=col||'#777';f.title=m}try{if(typeof ST!='undefined'&&typeof head=='function'){ST=m;head()}}catch(e){}const s=document.getElementById('sbs');if(s)s.textContent=m}
+function fire(){SB.subs.forEach(x=>{try{if(x.t=='c')x.cb({docs:Object.entries(SB.c[x.n]||{}).map(([id,v])=>({id,data:()=>cl(v)}))});else{const v=SB.cfg[x.n];x.cb({exists:v!=null,data:()=>cl(v)})}}catch(e){}})}
+function put(col,id,v){const m=SB.c[col]=SB.c[col]||{};if(v===null)delete m[id];else m[id]=v}
+function enq(o){const i=SB.pend.findIndex(p=>p.k==o.k&&p.c==o.c&&p.id==o.id&&p.n==o.n);o.q=++SB.seq;if(i>=0)SB.pend[i]=o;else SB.pend.push(o);pp();clearTimeout(SB.ft);SB.ft=setTimeout(flush,500)}
+async function flush(){
+ if(SB.busy||!SB.cli||!SB.started)return;SB.busy=true;
+ try{while(SB.pend.length){const o=SB.pend[0],q=o.q;let r;
+  if(o.k=='c')r=o.v===null?await SB.cli.from('docs').delete().eq('col',o.c).eq('id',o.id):await SB.cli.from('docs').upsert({col:o.c,id:o.id,data:o.v},{onConflict:'col,id'});
+  else r=await SB.cli.from('cfg').upsert({name:o.n,data:o.v},{onConflict:'name'});
+  if(r.error)throw r.error;SB.pend=SB.pend.filter(p=>p.q!=q);pp()}
+  stat('Online ✓','#1f7a3d')}
+ catch(e){stat('Offline – sync ruka ('+((e&&e.message)||'error').slice(0,40)+')','#c0392b');clearTimeout(SB.rt);SB.rt=setTimeout(flush,15000)}
+ finally{SB.busy=false}}
+async function pull(){
+ const c={},cf={};let from=0;
+ for(;;){const r=await SB.cli.from('docs').select('col,id,data').order('col').order('id').range(from,from+999);if(r.error)throw r.error;r.data.forEach(x=>{(c[x.col]=c[x.col]||{})[x.id]=x.data});if(r.data.length<1000)break;from+=1000}
+ const r2=await SB.cli.from('cfg').select('name,data');if(r2.error)throw r2.error;r2.data.forEach(x=>cf[x.name]=x.data);
+ const before=canon([SB.c,SB.cfg]);SB.c=c;SB.cfg=cf;
+ SB.pend.forEach(o=>{if(o.k=='c')put(o.c,o.id,o.v);else SB.cfg[o.n]=o.v});
+ const ch=!SB.loaded||before!==canon([SB.c,SB.cfg]);SB.loaded=true;if(ch)fire()}
+function live(){
+ if(SB.ch)return;
+ SB.ch=SB.cli.channel('skm-live')
+ .on('postgres_changes',{event:'*',schema:'public',table:'docs'},p=>{const r=p.eventType=='DELETE'?p.old:p.new;if(!r||r.col==null)return;const cur=(SB.c[r.col]||{})[r.id];
+   if(p.eventType=='DELETE'){if(cur!==undefined){put(r.col,r.id,null);fire()}}else if(canon(cur)!==canon(r.data)){put(r.col,r.id,r.data);fire()}})
+ .on('postgres_changes',{event:'*',schema:'public',table:'cfg'},p=>{const r=p.eventType=='DELETE'?p.old:p.new;if(!r||!r.name)return;if(p.eventType=='DELETE')delete SB.cfg[r.name];else if(canon(SB.cfg[r.name])!==canon(r.data))SB.cfg[r.name]=r.data;else return;fire()})
+ .subscribe(s=>{if(s=='SUBSCRIBED')stat('Online ✓','#1f7a3d');else if(s=='CHANNEL_ERROR'||s=='TIMED_OUT')stat('Live sync ruka – refresh karein','#d68a00')})}
 const SHIM={
- collection:c=>({doc:id=>({set:async v=>{qop({k:'c',c,id:String(id),v:cl(v)})},delete:async()=>{qop({k:'c',c,id:String(id),v:null})}}),
-  onSnapshot:(cb,er)=>{SH.subs.push({t:'c',n:c,cb});if(SH.loaded)setTimeout(()=>fire(),0)}}),
- doc:p=>{const n=p.split('/')[1];return{set:async v=>{qop({k:'cfg',n,v:cl(v)})},onSnapshot:(cb,er)=>{SH.subs.push({t:'cfg',n,cb});if(SH.loaded)setTimeout(()=>fire(),0)}}}};
+ collection:c=>({doc:id=>({set:async v=>{put(c,String(id),cl(v));enq({k:'c',c,id:String(id),v:cl(v)})},delete:async()=>{put(c,String(id),null);enq({k:'c',c,id:String(id),v:null})}}),
+  onSnapshot:(cb,er)=>{SB.subs.push({t:'c',n:c,cb});if(SB.loaded)setTimeout(()=>fire(),0)}}),
+ doc:p=>{const n=p.split('/')[1];return{set:async v=>{SB.cfg[n]=cl(v);enq({k:'cfg',n,v:cl(v)})},onSnapshot:(cb,er)=>{SB.subs.push({t:'cfg',n,cb});if(SB.loaded)setTimeout(()=>fire(),0)}}}};
 async function getDb(){
- if(!DRV.on||!DRV.cid)return null;
- if(!tokQuiet()){dStat('Drive: reconnect (kahin tap karein)','#d68a00');return null}
- try{await dCycle()}catch(e){return null}
- if(!SH.poll){SH.poll=setInterval(()=>{if(!document.hidden)dCycle()},25000);document.addEventListener('visibilitychange',()=>{if(!document.hidden)dCycle()})}
- return SHIM}
-/* first tap after token expiry = user gesture, so Google can refresh silently */
-document.addEventListener('click',async()=>{if(!(DRV.on&&DRV.need)||DRV.busyTap)return;DRV.busyTap=true;const t=await getTokUI();DRV.busyTap=false;if(t){try{if(typeof db!='undefined'&&db)dCycle();else location.reload()}catch(e){location.reload()}}},true);
+ if(!SB.url||!SB.key)return null;
+ if(!window.supabase){stat('Supabase library load nahi hui (internet check karein)','#c0392b');return null}
+ try{
+  SB.cli=SB.cli||window.supabase.createClient(SB.url,SB.key);
+  const s=(await SB.cli.auth.getSession()).data.session;
+  if(!s){stat('Partner login karein (☁ dabayein)','#d68a00');return null}
+  SB.email=s.user.email||'';
+  await pull();SB.started=true;live();flush();
+  setInterval(()=>{if(!document.hidden)flush()},20000);
+  window.addEventListener('online',()=>{flush();pull().catch(()=>{})});
+  document.addEventListener('visibilitychange',()=>{if(!document.hidden){pull().catch(()=>{});flush()}});
+  stat('Online ✓','#1f7a3d');return SHIM
+ }catch(e){stat('Server se connect nahi hua ('+((e&&e.message)||'').slice(0,40)+')','#c0392b');return null}}
 /* ---- cloud button + panel ---- */
-function drvPanel(){let o=document.getElementById('drvp');if(o){o.remove();return}
- o=document.createElement('div');o.id='drvp';o.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:99;display:flex;align-items:flex-end;justify-content:center';
- o.innerHTML='<div style="background:var(--card,#fff);color:var(--tx,#000);width:100%;max-width:560px;border-radius:14px 14px 0 0;padding:14px;max-height:90vh;overflow:auto"><b>Google Drive sync</b><p class="mu" id="drvs" style="margin:4px 0 8px"></p><label>Google OAuth Client ID</label><input id="gcid" placeholder="xxxx.apps.googleusercontent.com" value="'+DRV.cid.replace(/"/g,'')+'"><button style="width:100%;margin-top:8px" onclick="drvConnect()">Drive se connect karein</button><button class="g" style="width:100%;margin-top:6px" onclick="drvNow()">Abhi sync karein</button><button class="g" style="width:100%;margin-top:6px" onclick="drvOff()">Drive band karein</button><button class="g" style="width:100%;margin-top:6px" onclick="document.getElementById(\'drvp\').remove()">Close</button><p class="mu" style="margin-top:8px">Data Drive me <b>'+DFN+'</b> file me save hota hai. Sab devices par same Google account se connect karein.</p></div>';
- o.addEventListener('click',e=>{if(e.target==o)o.remove()});document.body.appendChild(o);drvSt()}
-function drvSt(){const s=document.getElementById('drvs');if(s)s.textContent=DRV.on?(DRV.msg||'Connected'):'Abhi band hai (data sirf is phone me hai)'}
-async function drvConnect(){const v=document.getElementById('gcid').value.trim();if(!v)return alert('Client ID dalein');
- DRV.cid=v;try{localStorage.setItem('skmCid',v)}catch(e){}DRV.tok=null;DRV.exp=0;
- const s=document.getElementById('drvs');s.textContent='Google login khul raha hai…';
- const t=await getTokUI();if(!t){s.textContent='Connect nahi hua. Client ID aur "Authorized JavaScript origin" check karein, phir dubara try karein.';return}
- DRV.on=true;try{localStorage.setItem('skmDrv','1')}catch(e){}s.textContent='Connected, app reload ho raha hai…';setTimeout(()=>location.reload(),600)}
-async function drvNow(){if(!DRV.on)return;const t=await getTokUI();if(!t)return drvSt();try{await dCycle()}catch(e){}drvSt()}
-function drvOff(){if(!confirm('Drive sync band karein? Data is phone me rahega.'))return;DRV.on=false;['skmDrv','skmTok','skmPend'].forEach(k=>{try{localStorage.removeItem(k)}catch(e){}});location.reload()}
-window.addEventListener('DOMContentLoaded',()=>{const f=document.createElement('button');f.id='drvfab';f.textContent='☁';f.style.cssText='position:fixed;right:10px;bottom:calc(78px + env(safe-area-inset-bottom,0px));width:42px;height:42px;border-radius:50%;padding:0;font-size:20px;z-index:50;box-shadow:0 2px 8px rgba(0,0,0,.3);background:'+(DRV.on?'#d68a00':'#777');f.onclick=drvPanel;document.body.appendChild(f)});
+const E=s=>String(s).replace(/"/g,'&quot;');
+function sbPanel(){let o=document.getElementById('sbp');if(o){o.remove();return}
+ o=document.createElement('div');o.id='sbp';o.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:99;display:flex;align-items:flex-end;justify-content:center';
+ o.innerHTML='<div style="background:var(--card,#fff);color:var(--tx,#000);width:100%;max-width:560px;border-radius:14px 14px 0 0;padding:14px;max-height:90vh;overflow:auto"><b>Cloud sync (Supabase)</b><p class="mu" id="sbs" style="margin:4px 0 8px">'+(SB.msg||'Abhi band hai (data sirf is phone me hai)')+'</p>'
+ +'<label>Project URL</label><input id="sbu" placeholder="https://xxxx.supabase.co" value="'+E(SB.url)+'">'
+ +'<label>Anon / Publishable key (service_role kabhi nahi)</label><input id="sbk" value="'+E(SB.key)+'">'
+ +'<label>Partner email</label><input id="sbe" type="email" value="'+E(SB.email)+'">'
+ +'<label>Partner PIN (6 ank)</label><input id="sbp2" type="password" inputmode="numeric">'
+ +'<button style="width:100%;margin-top:8px" onclick="sbLogin()">Login / Connect</button>'
+ +'<button class="g" style="width:100%;margin-top:6px" onclick="sbNow()">Abhi sync karein</button>'
+ +'<button class="g" style="width:100%;margin-top:6px" onclick="sbOut()">Logout</button>'
+ +'<button class="g" style="width:100%;margin-top:6px" onclick="document.getElementById(\'sbp\').remove()">Close</button></div>';
+ o.addEventListener('click',e=>{if(e.target==o)o.remove()});document.body.appendChild(o)}
+const say=m=>{const s=document.getElementById('sbs');if(s)s.textContent=m};
+async function sbLogin(){
+ const v=i=>document.getElementById(i).value.trim(),u=v('sbu').replace(/\/+$/,''),k=v('sbk'),e=v('sbe'),p=document.getElementById('sbp2').value;
+ if(!u||!k||!e||!p)return say('Sab fields bharein');
+ if(!window.supabase)return say('Supabase library load nahi hui. Internet check karein.');
+ st_('skmSbU',u);st_('skmSbK',k);SB.url=u;SB.key=k;SB.cli=null;say('Login ho raha hai…');
+ try{SB.cli=window.supabase.createClient(u,k);const r=await SB.cli.auth.signInWithPassword({email:e,password:p});
+  if(r.error)return say('Login nahi hua: '+r.error.message);
+  const pr=await SB.cli.from('partners').select('name,active').eq('id',r.data.user.id).maybeSingle();
+  if(!pr.data||!pr.data.active)return say('Ye account partner list me active nahi hai.');
+  say('Login ho gaya, app reload ho rahi hai…');setTimeout(()=>location.reload(),600)
+ }catch(x){say('Connect nahi hua. URL aur key check karein.')}}
+async function sbNow(){if(!SB.cli||!SB.started)return say('Pehle login karein');try{await pull();await flush()}catch(e){say('Sync nahi hua: '+((e&&e.message)||''))}}
+async function sbOut(){if(!confirm('Logout karein? Data cloud me safe rahega.'))return;try{if(SB.cli)await SB.cli.auth.signOut()}catch(e){}location.reload()}
+window.addEventListener('DOMContentLoaded',()=>{const f=document.createElement('button');f.id='sbfab';f.textContent='☁';f.style.cssText='position:fixed;right:10px;bottom:calc(78px + env(safe-area-inset-bottom,0px));width:42px;height:42px;border-radius:50%;padding:0;font-size:20px;z-index:50;box-shadow:0 2px 8px rgba(0,0,0,.3);background:'+(SB.url?'#d68a00':'#777');f.onclick=sbPanel;document.body.appendChild(f)});
 if('serviceWorker' in navigator&&location.protocol.startsWith('http'))window.addEventListener('load',()=>navigator.serviceWorker.register('sw.js').catch(()=>{}));
-window.getDb=getDb;window.drvPanel=drvPanel;window.drvConnect=drvConnect;window.drvNow=drvNow;window.drvOff=drvOff;
+window.getDb=getDb;window.sbPanel=sbPanel;window.sbLogin=sbLogin;window.sbNow=sbNow;window.sbOut=sbOut;
+window.__SB=SB;
 })();
 </script>
 <script>
