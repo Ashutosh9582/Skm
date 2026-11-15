@@ -1,4 +1,4 @@
-const V='skm-v3',CORE=['./','./index.html','./manifest.json','./icon-192.png','./icon-512.png'];
+const V='skm-v6',CORE=['./','./index.html','./manifest.json','./icon-192.png','./icon-512.png'];
 self.addEventListener('install',e=>{e.waitUntil(caches.open(V).then(c=>c.addAll(CORE.map(u=>new Request(u,{cache:'reload'})))).then(()=>self.skipWaiting()))});
 self.addEventListener('activate',e=>{e.waitUntil(caches.keys().then(k=>Promise.all(k.filter(x=>x!=V).map(x=>caches.delete(x)))).then(()=>self.clients.claim()))});
 const SKIP=['www.googleapis.com','accounts.google.com','oauth2.googleapis.com','apis.google.com'];
