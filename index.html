@@ -130,6 +130,114 @@ window.__SB=SB;
 })();
 </script>
 <script>
+/* ===== Website Media & Gallery (Supabase table web_gallery + Storage bucket website-media) =====
+   Admin only. Public website reads rows where published=true. Setup SQL: supabase/setup.sql */
+(function(){
+const BK='website-media',CATS=['Weddings','Corporate Events','Birthday Parties','Engagements','Other Events'];
+const W={rows:[],err:'',prev:false};
+const E=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const cli=()=>window.__SB&&window.__SB.cli&&window.__SB.started?window.__SB.cli:null;
+const msg=t=>{const m=document.getElementById('wgmsg');if(m)m.textContent=t||''};
+const byOrder=(a,b)=>(a.sort_order||0)-(b.sort_order||0);
+async function load(){
+ const c=cli();if(!c){W.err='Pehle ☁ dabakar partner login karein.';return render()}
+ const r=await c.from('web_gallery').select('*').order('sort_order');
+ W.err=r.error?(/relation|schema cache|does not exist/i.test(r.error.message)?'Gallery table nahi mili. Supabase me supabase/setup.sql chalayein.':'Load nahi hua: '+r.error.message):'';
+ W.rows=r.data||[];render()}
+function shrink(file,max,q){return new Promise((res,rej)=>{const u=URL.createObjectURL(file),i=new Image();
+ i.onload=()=>{const r=Math.min(1,max/Math.max(i.width,i.height)),c=document.createElement('canvas');c.width=Math.round(i.width*r);c.height=Math.round(i.height*r);
+  c.getContext('2d').drawImage(i,0,0,c.width,c.height);URL.revokeObjectURL(u);c.toBlob(b=>b?res(b):rej(new Error('Compress nahi hua')),'image/jpeg',q)};
+ i.onerror=()=>rej(new Error('Photo padh nahi paye (JPG/PNG/WebP use karein)'));i.src=u})}
+async function upd(id,p){const c=cli();if(!c)return msg('Login karein');const r=await c.from('web_gallery').update({...p,updated_at:new Date().toISOString()}).eq('id',id);if(r.error)msg('Error: '+r.error.message);await load()}
+async function up(){
+ const c=cli();if(!c)return msg('Pehle ☁ dabakar login karein');
+ const fs=[...document.getElementById('wgf').files];if(!fs.length)return msg('Pehle photos chunein');
+ const v=i=>document.getElementById(i).value.trim(),cat=v('wgc'),title=v('wgt'),alb=v('wga'),pub=document.getElementById('wgp').checked;
+ let n=0,max=W.rows.reduce((a,r)=>Math.max(a,r.sort_order||0),0);
+ for(const f of fs){
+  if(!/^image\/(jpeg|png|webp)$/.test(f.type)||f.size>30e6){msg('Skip: '+f.name+' (sirf JPG/PNG/WebP, 30MB tak)');continue}
+  try{msg('Upload ho raha hai '+(n+1)+'/'+fs.length+'…');
+   const id=crypto.randomUUID(),p='gallery/'+id+'.jpg',tp='gallery/thumbs/'+id+'.jpg',s=c.storage.from(BK);
+   const [big,th]=await Promise.all([shrink(f,1600,.82),shrink(f,600,.75)]);
+   let r=await s.upload(p,big,{contentType:'image/jpeg',cacheControl:'31536000'});if(r.error)throw r.error;
+   r=await s.upload(tp,th,{contentType:'image/jpeg',cacheControl:'31536000'});if(r.error)throw r.error;
+   r=await c.from('web_gallery').insert({id,image_url:s.getPublicUrl(p).data.publicUrl,thumb_url:s.getPublicUrl(tp).data.publicUrl,storage_path:p,thumb_path:tp,event_title:title,caption:'',category:cat,album:alb,published:pub,sort_order:++max});
+   if(r.error)throw r.error;n++}
+  catch(e){msg('Error: '+((e&&e.message)||e));break}}
+ if(n)msg(n+' photo upload ho gayi'+(pub?' aur website par publish hain.':' (hidden hain, Publish dabayein).'));
+ document.getElementById('wgf').value='';await load()}
+function move(id,d){const l=W.rows.slice().sort(byOrder),i=l.findIndex(r=>r.id==id),j=i+d;if(i<0||j<0||j>=l.length)return;
+ [l[i],l[j]]=[l[j],l[i]];Promise.all(l.map((r,k)=>r.sort_order!==k+1?cli().from('web_gallery').update({sort_order:k+1,updated_at:new Date().toISOString()}).eq('id',r.id):null)).then(load)}
+function del(id){const r=W.rows.find(x=>x.id==id);if(!r)return;
+ ask('Ye photo website aur storage dono se delete hogi.',async()=>{const c=cli();if(!c)return;
+  const s=await c.storage.from(BK).remove([r.storage_path,r.thumb_path].filter(Boolean));if(s.error)return msg('Storage error: '+s.error.message);
+  const d=await c.from('web_gallery').delete().eq('id',id);if(d.error)return msg('Error: '+d.error.message);await load()})}
+function edit(id){const r=W.rows.find(x=>x.id==id);if(!r)return;
+ document.getElementById('mt').innerHTML='<b>Photo details</b><label>Event title</label><input id="we1" value="'+E(r.event_title)+'"><label>Caption</label><input id="we2" value="'+E(r.caption)+'"><label>Category</label><select id="we3">'+CATS.map(c=>'<option'+(c==r.category?' selected':'')+'>'+c+'</option>').join('')+'</select><label>Album</label><input id="we4" value="'+E(r.album)+'">';
+ document.getElementById('mb').innerHTML='<button class="g" onclick="mc()">Cancel</button><button id="wgs">Save</button>';
+ document.getElementById('wgs').onclick=()=>{const g=i=>document.getElementById(i).value.trim(),p={event_title:g('we1'),caption:g('we2'),category:g('we3'),album:g('we4')};mc();upd(id,p)};
+ document.getElementById('md').style.display='flex'}
+function render(){
+ const b=document.getElementById('wgbox');if(!b)return;
+ if(W.err){b.innerHTML='<div class="card"><b class="bad">'+E(W.err)+'</b></div>';return}
+ if(W.prev){const l=W.rows.filter(r=>r.published).sort((a,b)=>(b.featured?1:0)-(a.featured?1:0)||byOrder(a,b));
+  b.innerHTML='<div class="mu">Website par aise dikhega ('+l.length+' published):</div><div style="display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin-top:8px">'+l.map(r=>'<div><img src="'+E(r.thumb_url||r.image_url)+'" loading="lazy" style="width:100%;aspect-ratio:4/3;object-fit:cover;border-radius:8px"><div class="mu">'+E([r.event_title,r.caption].filter(Boolean).join(': '))+' · '+E(r.category)+'</div></div>').join('')+'</div>';return}
+ const l=W.rows.slice().sort(byOrder);
+ b.innerHTML=l.map(r=>'<div class="card"><div class="r" style="align-items:center"><img src="'+E(r.thumb_url||r.image_url)+'" loading="lazy" style="max-width:84px;height:64px;object-fit:cover;border-radius:6px;flex:none"><div><b>'+E(r.event_title||'(No title)')+'</b><div class="mu">'+E(r.caption)+'</div><div class="mu">'+E(r.category)+(r.album?' · '+E(r.album):'')+' · '+(r.published?'<span class="ok">Published</span>':'<span class="bad">Hidden</span>')+(r.featured?' · ⭐':'')+'</div></div></div>'
+  +'<div class="r" style="margin-top:8px;flex-wrap:wrap"><button class="g s" onclick="WG.t(\''+r.id+'\')">'+(r.published?'Hide':'Publish')+'</button><button class="g s" onclick="WG.f(\''+r.id+'\')">'+(r.featured?'Unfeature':'⭐ Feature')+'</button><button class="g s" onclick="WG.m(\''+r.id+'\',-1)">▲</button><button class="g s" onclick="WG.m(\''+r.id+'\',1)">▼</button><button class="g s" onclick="WG.e(\''+r.id+'\')">Edit</button><button class="g s" onclick="WG.d(\''+r.id+'\')">Delete</button></div></div>').join('')||'<p class="mu">Abhi koi photo nahi hai.</p>'}
+window.WG={up,m:move,d:del,e:edit,t:id=>{const r=W.rows.find(x=>x.id==id);r&&upd(id,{published:!r.published})},f:id=>{const r=W.rows.find(x=>x.id==id);r&&upd(id,{featured:!r.featured})},p:()=>{W.prev=!W.prev;render()},_W:W,_load:load};
+window.wg=function(){setTimeout(load,0);
+ return'<div class="card"><b>Website Media &amp; Gallery</b><p class="mu">Yahan se upload kiya gaya published photo website par ek minute me dikhta hai.</p>'
+ +'<input type="file" id="wgf" accept="image/jpeg,image/png,image/webp" multiple style="margin:6px 0">'
+ +'<label>Event title</label><input id="wgt"><label>Category</label><select id="wgc">'+CATS.map(c=>'<option>'+c+'</option>').join('')+'</select><label>Album (optional)</label><input id="wga">'
+ +'<label style="display:flex;gap:6px;align-items:center;margin-top:8px"><input type="checkbox" id="wgp" checked style="width:auto"> Upload ke baad publish karein</label>'
+ +'<button style="width:100%;margin-top:8px" onclick="WG.up()">Upload photos</button><p class="mu" id="wgmsg"></p>'
+ +'<button class="g" style="width:100%" onclick="WG.p()">👁 Website preview / Edit list</button></div><div id="wgbox"><p class="mu">Loading…</p></div>'}
+})();
+</script>
+<script>
+/* ===== Website Enquiries (Supabase table web_enquiries). Admin only. Setup SQL: supabase/setup.sql ===== */
+(function(){
+const W={rows:[],err:'',seen:null,on:false},ST=['new','read','contacted','confirmed','closed'];
+const E=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const cli=()=>window.__SB&&window.__SB.cli&&window.__SB.started?window.__SB.cli:null;
+const isAdm=()=>typeof adm==='function'&&adm();
+const tm=t=>t?new Date(t).toLocaleString('en-IN',{day:'2-digit',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit'}):'';
+const unread=()=>W.rows.filter(r=>!r.is_read).length;
+function badge(){const n=unread();window.WE_N=n;let f=document.getElementById('webfab');
+ if(!f){f=document.createElement('button');f.id='webfab';f.style.cssText='position:fixed;right:10px;bottom:calc(128px + env(safe-area-inset-bottom,0px));width:42px;height:42px;border-radius:50%;padding:0;font-size:18px;z-index:50;box-shadow:0 2px 8px rgba(0,0,0,.3);display:none';f.onclick=()=>go('we');document.body.appendChild(f)}
+ f.textContent='🔔 '+n;f.style.width='auto';f.style.padding='0 12px';f.style.display=(n>0&&isAdm())?'block':'none'}
+async function load(quiet){
+ const c=cli();if(!c){if(!quiet){W.err='Pehle ☁ dabakar partner login karein.';render()}return}
+ const r=await c.from('web_enquiries').select('*').order('created_at',{ascending:false}).limit(300);
+ if(r.error){W.err=/relation|schema cache|does not exist/i.test(r.error.message)?'Enquiry table nahi mili. Supabase me supabase/setup.sql chalayein.':'Load nahi hua: '+r.error.message;render();return}
+ W.err='';W.rows=r.data||[];badge();render()}
+async function setS(id,s){const c=cli(),r=W.rows.find(x=>x.id==id);if(!c||!r)return;
+ const h=(r.history||[]).concat([{s,t:new Date().toISOString()}]);
+ const u=await c.from('web_enquiries').update({status:s,is_read:true,history:h}).eq('id',id);if(u.error)return note('Error: '+u.error.message);load()}
+function wa(r){const t='Hello '+r.name+', thank you for your enquiry with SKM Caters'+(r.event_type?' for your '+r.event_type.toLowerCase():'')+'. We would be happy to help plan your event.';return'https://wa.me/'+r.phone.replace('+','')+'?text='+encodeURIComponent(t)}
+function render(){const b=document.getElementById('webox');if(!b)return;
+ if(W.err){b.innerHTML='<div class="card"><b class="bad">'+E(W.err)+'</b></div>';return}
+ b.innerHTML=W.rows.map(r=>{const hs=(r.history||[]).map(h=>E(h.s)+' '+tm(h.t)).join(' → ');
+  return'<div class="card" style="'+(r.is_read?'':'border-left:4px solid var(--ac)')+'"><div class="tot"><b>'+E(r.name)+'</b><span class="'+(r.status=='new'?'bad':'ok')+'">'+E(r.status.toUpperCase())+'</span></div>'
+  +'<div class="mu">'+tm(r.created_at)+'</div>'
+  +'<div style="margin-top:6px">'+[r.event_type,r.event_date,r.location,r.guests?r.guests+' guests':''].filter(Boolean).map(E).join(' · ')+'</div>'
+  +(r.message?'<div class="mu" style="margin-top:4px">'+E(r.message)+'</div>':'')
+  +'<div class="mu" style="margin-top:4px">'+E(r.phone)+' · '+E(r.email)+'</div>'
+  +'<div class="r" style="margin-top:8px;flex-wrap:wrap"><a class="b s" style="text-align:center;text-decoration:none" href="'+wa(r)+'" target="_blank" rel="noopener" onclick="WE.s(\''+r.id+'\',\'contacted\')">WhatsApp</a><a class="b s" style="text-align:center;text-decoration:none" href="mailto:'+E(r.email)+'?subject='+encodeURIComponent('Your SKM Caters enquiry')+'">Email</a><a class="b s" style="text-align:center;text-decoration:none" href="tel:'+E(r.phone)+'">Call</a></div>'
+  +'<div class="r" style="margin-top:6px;flex-wrap:wrap">'+ST.slice(1).map(s=>'<button class="g s" '+(r.status==s?'disabled style="opacity:.5"':'')+' onclick="WE.s(\''+r.id+'\',\''+s+'\')">'+s[0].toUpperCase()+s.slice(1)+'</button>').join('')+'</div>'
+  +'<div class="mu" style="margin-top:6px;font-size:11px">'+hs+'</div></div>'}).join('')||'<p class="mu">Abhi koi enquiry nahi aayi.</p>'}
+function start(){if(W.on)return;const c=cli();if(!c)return;W.on=true;
+ load(true).then(()=>{W.seen=new Set(W.rows.map(r=>r.id))});
+ c.channel('web-enq').on('postgres_changes',{event:'INSERT',schema:'public',table:'web_enquiries'},p=>{
+   if(p.new&&isAdm()){try{note('🔔 Nayi website enquiry: '+p.new.name)}catch(e){}}load(true)}).subscribe();
+ setInterval(()=>{if(!document.hidden)load(true)},60000)}
+setInterval(start,4000);
+window.WE={s:setS,_W:W,_load:load};
+window.we=function(){setTimeout(load,0);return'<div class="card"><b>Website Enquiries</b><p class="mu">Website ke quotation form se aayi enquiries. Unread par laal patti hai. WhatsApp dabane par status "Contacted" ho jata hai.</p></div><div id="webox"><p class="mu">Loading…</p></div>'}
+})();
+</script>
+<script>
 const LOGO='data:image/jpeg;base64,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',EMB='data:image/png;base64,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';
 const TC='Rates are per plate and are valid for the guest count mentioned; final count to be confirmed 3 days before the event.\nBooking is confirmed only on receipt of the advance amount; the advance is non-refundable.\nBalance payment is due on or before the event date, as agreed.';let PF=null;
 const BN={skm:{f:'SKM Caters',p:'SKM',j:'Jaipur'},sur:{f:'Surprise Catering & Services',p:'SUR',j:'New Delhi'}};
@@ -261,10 +369,10 @@ const chk=()=>{if(ME&&ME.uid!='admin'){const u=U(ME.uid);if(!u||!u.active)outx()
 function nav(){const a=adm(),up=ME&&!a?U(ME.uid):null,t=!ME?[]:a?[['home','🏠','Home'],['list','📅','Bookings'],['exp','💰','Expenses'],['more','⋮','More']]:[['home','🏠','Home'],['xf','➕','Expense'],...(up&&up.p&&up.p.inv?[['inv','📦','Stock']]:[]),['out','🚪','Logout']],m={home:'home',list:'list',form:'list',det:'list',exp:'exp',xf:a?'exp':'xf',inv:'inv',iv:'inv',ivf:'inv'};$('#nv').innerHTML=t.map(([v,i,l])=>`<a class="${m[V]==v?'on':''}" onclick="nv('${v}')"><span style="font-size:18px;display:block">${i}</span>${l}</a>`).join('')}
 function nv(v){if(v=='more')return more();if(v=='out')return outx();go(v)}
 function more(){const g=(t,a)=>`<div class="mu" style="margin:8px 0 4px">${t}</div><div class="r" style="flex-wrap:wrap">${a.map(([i,l,v])=>`<button class="g" style="flex:1 1 45%" onclick="mc();go('${v}')">${i} ${l}</button>`).join('')}</div>`;
-$('#mt').innerHTML=g('Business',[['📝','Quotations','qt'],['👥','Users & Advances','usr'],['📦','Inventory','inv']])+g('Reports',[['📊','Reports / Export','rep'],['🕘','Audit log','aud']])+g('Setup',[['🏷️','Categories','cat'],['⚙️','Settings','set']])+`<button class="g" style="width:100%;margin-top:10px" onclick="mc();outx()">🚪 Logout</button>`;$('#mb').innerHTML='<button onclick="mc()">Close</button>';$('#md').style.display='flex'}
+$('#mt').innerHTML=g('Business',[['📝','Quotations','qt'],['👥','Users & Advances','usr'],['📦','Inventory','inv'],['🖼️','Website Gallery','wg'],['📩','Website Enquiries'+(window.WE_N?' ('+window.WE_N+')':''),'we']])+g('Reports',[['📊','Reports / Export','rep'],['🕘','Audit log','aud']])+g('Setup',[['🏷️','Categories','cat'],['⚙️','Settings','set']])+`<button class="g" style="width:100%;margin-top:10px" onclick="mc();outx()">🚪 Logout</button>`;$('#mb').innerHTML='<button onclick="mc()">Close</button>';$('#md').style.display='flex'}
 function outx(){ME=null;try{localStorage.removeItem('skmSess')}catch(e){}V='home';draw()}
 function head(){const a=adm();$('#hh').innerHTML=`<img src="${D.biz=='skm'?LOGO:EMB}" alt=""><div><h1>${esc(BN[D.biz].f)}</h1><small style="font-size:11px;opacity:.85">${ME&&ME.uid!='admin'?esc(UN(ME.uid))+' · ':''}${ST}</small></div>`+(a?`<span style="margin-left:auto;white-space:nowrap">${['skm','sur'].map(k=>`<button class="s g" style="margin-left:4px;${D.biz==k?'background:#fff;color:#8c1c13':'color:#fff;border-color:#fff'}" onclick="D.biz='${k}';save();V='home';draw()">${k=='skm'?'SKM':'Surprise'}</button>`).join('')}</span>`:'')}
-function draw(){if(!READY){$('#hh').innerHTML='';$('#nv').innerHTML='';$('#m').innerHTML='<p class="mu" style="text-align:center;margin-top:40px">Loading…</p>';return}head();nav();if(!ME){$('#m').innerHTML=loginView();return}const f={home,list,form,det,qt,qf,qd,exp,xf,set,usr,uf,ud,inv,iv,ivf,rep,loc,aud,cat}[V]||home;$('#m').innerHTML=f();scrollTo(0,0)}
+function draw(){if(!READY){$('#hh').innerHTML='';$('#nv').innerHTML='';$('#m').innerHTML='<p class="mu" style="text-align:center;margin-top:40px">Loading…</p>';return}head();nav();if(!ME){$('#m').innerHTML=loginView();return}const f={home,list,form,det,qt,qf,qd,exp,xf,set,usr,uf,ud,inv,iv,ivf,rep,loc,aud,cat,wg,we}[V]||home;$('#m').innerHTML=f();scrollTo(0,0)}
 function go(v,i){if(!ME){V='home';return draw()}const a=adm(),up=U(ME.uid);if(!a&&!['home','xf','exp'].includes(v)&&!(['inv','iv'].includes(v)&&up&&up.p&&up.p.inv))v='home';V=v;id=i??null;
 if(v=='form')cur=i!=null?cl(D.b.find(x=>x.id==i)):blank();if(v=='qf')PF=null;if(v=='qf')cur=i!=null?cl(D.q.find(x=>x.id==i)):qblank();if(v=='xf')cur=i!=null?cl(D.x.find(x=>x.id==i)):xblank();if(v=='uf')cur={name:'',mobile:'',pin:'',inv:false};if(v=='ivf')cur={name:'',cat:'',unit:'pieces',qty:'',pdate:today(),price:'',min:'',desc:''};draw()}
 /* login */
